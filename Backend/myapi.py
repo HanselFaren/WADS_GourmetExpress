@@ -1,167 +1,64 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import sqlite3
+from fastapi.middleware.cors import CORSMiddleware
+
+from sqlalchemy.orm import Session
+
+from database import engine, SessionLocal
+from models import Base, Store, Item
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-
-# Database setup
-conn = sqlite3.connect("food_delivery.db")
-cursor = conn.cursor()
-
-# Create items table
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        price REAL
-    )
-    """
+origins = ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['https://your-frontend-url.com'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
 )
 
-# Create orders table
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_id INTEGER,
-        quantity INTEGER,
-        FOREIGN KEY (item_id) REFERENCES items (id)
-    )
-    """
-)
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Commit changes and close connection
-conn.commit()
-conn.close()
+@app.get("/stores")
+def get_stores(db: Session = Depends(get_db)):
+    stores = db.query(Store).all()
+    return stores
 
+@app.post("/stores")
+def create_store(store_name: str, db: Session = Depends(get_db)):
+    store = Store(name=store_name)
+    db.add(store)
+    db.commit()
+    db.refresh(store)
+    return store
 
-# Models
-class Item(BaseModel):
-    name: str
-    price: float
+@app.get("/stores/{store_id}/items")
+def get_store_items(store_id: int, db: Session = Depends(get_db)):
+    store = db.query(Store).get(store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    items = store.items
+    return items
 
+@app.post("/stores/{store_id}/items")
+def create_item(store_id: int, item_name: str, item_price: int, db: Session = Depends(get_db)):
+    store = db.query(Store).get(store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    item = Item(name=item_name, price=item_price, store_id=store_id)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
 
-class OrderItem(BaseModel):
-    item_id: int
-    quantity: int
+if __name__ == "__main__":
+    import uvicorn
 
-
-class Order(BaseModel):
-    items: list[OrderItem]
-
-
-# Item endpoints
-@app.post("/items")
-def create_item(item: Item):
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    cursor.execute("INSERT INTO items (name, price) VALUES (?, ?)", (item.name, item.price))
-
-    conn.commit()
-    conn.close()
-
-    return {"message": "Item created successfully"}
-
-
-@app.get("/items")
-def get_items():
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM items")
-    items = cursor.fetchall()
-
-    conn.close()
-
-    formatted_items = [{"id": item[0], "name": item[1], "price": item[2]} for item in items]
-
-    return formatted_items
-
-
-@app.delete("/items/{item_id}")
-def delete_item(item_id: int):
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
-    item = cursor.fetchone()
-
-    if not item:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    cursor.execute("DELETE FROM items WHERE id = ?", (item_id,))
-
-    conn.commit()
-    conn.close()
-
-    return {"message": "Item deleted successfully"}
-
-
-# Order endpoints
-@app.post("/order")
-def create_order(order: Order):
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    order_total = 0
-
-    for order_item in order.items:
-        item_id = order_item.item_id
-        quantity = order_item.quantity
-
-        cursor.execute("SELECT * FROM items WHERE id = ?", (item_id,))
-        item = cursor.fetchone()
-
-        if not item:
-            conn.close()
-            raise HTTPException(status_code=404, detail=f"Item with ID {item_id} not found")
-
-        order_total += item[2] * quantity
-
-        cursor.execute("INSERT INTO orders (item_id, quantity) VALUES (?, ?)", (item_id, quantity))
-
-    conn.commit()
-    conn.close()
-
-    new_order = {"total": order_total}
-
-    return new_order
-
-
-@app.get("/orders")
-def get_orders():
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM orders")
-    orders = cursor.fetchall()
-
-    conn.close()
-
-    formatted_orders = [{"id": order[0], "item_id": order[1], "quantity": order[2]} for order in orders]
-
-    return formatted_orders
-
-
-@app.delete("/order/{order_id}")
-def delete_order(order_id: int):
-    conn = sqlite3.connect("food_delivery.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
-    order = cursor.fetchone()
-
-    if not order:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    cursor.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-
-    conn.commit()
-    conn.close()
-
-    return {"message": "Order deleted successfully"}
+    uvicorn.run("main:app", host="0.0.0.0", port=5000)
