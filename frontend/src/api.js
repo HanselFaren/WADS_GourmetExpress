@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:5000'; // Replace with your backend API base URL
+const BASE_URL = 'https://backend-ckmuuk47l-hanselfaren.vercel.app/'; // Replace with your backend API base URL
 
 // Fetch all store items
 export const fetchStoreItems = async () => {
