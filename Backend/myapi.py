@@ -13,7 +13,7 @@ app = FastAPI()
 origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['https://your-frontend-url.com'],
+    allow_origins=['https://frontend-kohl-eight.vercel.app/'],
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
